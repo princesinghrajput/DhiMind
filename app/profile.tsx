@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 
 const settingsOptions = [
   { id: 'notifications', title: 'Notifications', icon: 'notifications' },
@@ -13,6 +14,7 @@ const settingsOptions = [
 export default function ProfileScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const router = useRouter();
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: isDark ? '#121212' : '#f5f5f5' }]}>
@@ -28,7 +30,10 @@ export default function ProfileScreen() {
         <Text style={[styles.email, { color: isDark ? '#aaa' : '#666' }]}>
           john.doe@example.com
         </Text>
-        <TouchableOpacity style={styles.editButton}>
+        <TouchableOpacity 
+          style={styles.editButton}
+          onPress={() => router.push('/edit-profile')}
+        >
           <Text style={styles.editButtonText}>Edit Profile</Text>
         </TouchableOpacity>
       </View>
