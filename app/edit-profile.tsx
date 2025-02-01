@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,21 +10,48 @@ import {
   Image,
   Platform,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SPACING, SHADOWS } from '../constants/theme';
 import * as ImagePicker from 'expo-image-picker';
+import { useAuth } from '../contexts/AuthContext';
+import { getUserProfile, updateUserProfile } from '../services/auth.service';
 
 export default function EditProfileScreen() {
-  const [name, setName] = useState('John Doe');
-  const [email, setEmail] = useState('john.doe@example.com');
+  const { user: authUser, setUser } = useAuth();
+  const [name, setName] = useState(authUser?.name || '');
+  const [email, setEmail] = useState(authUser?.email || '');
   const [bio, setBio] = useState('');
-  const [avatar, setAvatar] = useState('https://ui-avatars.com/api/?name=John+Doe&size=200');
+  const [avatar, setAvatar] = useState(
+    authUser?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(authUser?.name || '')}&size=200`
+  );
   const [loading, setLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const colorScheme = useColorScheme();
   const router = useRouter();
   const isDark = colorScheme === 'dark';
+
+  useEffect(() => {
+    loadUserProfile();
+  }, []);
+
+  const loadUserProfile = async () => {
+    try {
+      setIsLoading(true);
+      const userProfile = await getUserProfile();
+      setName(userProfile.name);
+      setEmail(userProfile.email);
+      setBio(userProfile.bio || '');
+      setAvatar(userProfile.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(userProfile.name)}&size=200`);
+    } catch (error) {
+      console.error('Error loading profile:', error);
+      Alert.alert('Error', 'Failed to load profile data');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleImagePick = async () => {
     try {
@@ -40,21 +67,41 @@ export default function EditProfileScreen() {
       }
     } catch (error) {
       console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
     }
   };
 
   const handleSave = async () => {
     try {
       setLoading(true);
-      // TODO: Implement profile update logic
-      // await updateUserProfile({ name, email, bio, avatar });
+      const updatedProfile = await updateUserProfile({
+        name,
+        email,
+        bio,
+        avatar,
+      });
+      setUser({ ...authUser, ...updatedProfile });
+      Alert.alert('Success', 'Profile updated successfully');
       router.back();
     } catch (error) {
       console.error('Update profile error:', error);
+      Alert.alert('Error', 'Failed to update profile');
     } finally {
       setLoading(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <View style={[
+        styles.container,
+        { backgroundColor: isDark ? COLORS.dark.background : COLORS.light.background },
+        styles.loadingContainer
+      ]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -279,5 +326,9 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: FONTS.sizes.md,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 }); 

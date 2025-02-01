@@ -7,24 +7,43 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { COLORS } from '../constants/theme';
+import { Stack, useRouter, useSegments } from 'expo-router';
+import { initializeAuth } from '../services/auth.service';
+import { AuthProvider, useAuth } from '../contexts/AuthContext';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
+function RootLayoutNav() {
+  const { user, isLoading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const [loaded] = useFonts({
-    // Add custom fonts here if needed
-  });
 
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
+    if (!isLoading) {
+      const inAuthGroup = segments[0] === 'auth';
+      if (!user && !inAuthGroup) {
+        router.replace('/auth/login');
+      } else if (user && inAuthGroup) {
+        router.replace('/');
+      }
     }
-  }, [loaded]);
+  }, [user, segments, isLoading]);
 
-  if (!loaded) return null;
+  if (isLoading) {
+    return null;
+  }
+
+  if (!user) {
+    return (
+      <Stack>
+        <Stack.Screen name="auth/login" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
+      </Stack>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -56,7 +75,7 @@ export default function RootLayout() {
           drawerInactiveTintColor: isDark ? COLORS.dark.text : COLORS.light.text,
         }}
       >
-       <Drawer.Screen
+        <Drawer.Screen
           name="index"
           options={{
             title: 'Home',
@@ -156,8 +175,32 @@ export default function RootLayout() {
             ),
           }}
         />
-        
       </Drawer>
     </GestureHandlerRootView>
+  );
+}
+
+export default function RootLayout() {
+  const [loaded] = useFonts({
+    // Add custom fonts here if needed
+  });
+
+  useEffect(() => {
+    if (loaded) {
+      SplashScreen.hideAsync();
+    }
+  }, [loaded]);
+
+  useEffect(() => {
+    // Initialize auth state when app starts
+    initializeAuth();
+  }, []);
+
+  if (!loaded) return null;
+
+  return (
+    <AuthProvider>
+      <RootLayoutNav />
+    </AuthProvider>
   );
 }

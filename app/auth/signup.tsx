@@ -15,6 +15,7 @@ import {
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SPACING, SHADOWS } from '../../constants/theme';
+import { signup } from '../../services/auth.service';
 
 export default function SignupScreen() {
   const [name, setName] = useState('');
@@ -31,11 +32,24 @@ export default function SignupScreen() {
   const handleSignup = async () => {
     try {
       setLoading(true);
-      // TODO: Implement signup logic
-      // const response = await registerUser(name, email, password);
-      // router.replace('/');
-    } catch (error) {
+      
+      // Validate inputs
+      if (!name || !email || !password || !confirmPassword) {
+        alert('Please fill in all fields');
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        alert('Passwords do not match');
+        return;
+      }
+
+      // Call signup service
+      await signup({ name, email, password });
+      router.replace('/(tabs)');
+    } catch (error: any) {
       console.error('Signup error:', error);
+      alert(error.response?.data?.message || 'Error during signup');
     } finally {
       setLoading(false);
     }

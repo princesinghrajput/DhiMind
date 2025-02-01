@@ -11,10 +11,13 @@ import {
   ActivityIndicator,
   Image,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SPACING, SHADOWS } from '../../constants/theme';
+import { login } from '../../services/auth.service';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -24,15 +27,25 @@ export default function LoginScreen() {
   const colorScheme = useColorScheme();
   const router = useRouter();
   const isDark = colorScheme === 'dark';
+  const { setUser } = useAuth();
 
   const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Please enter both email and password');
+      return;
+    }
+
     try {
       setLoading(true);
-      // TODO: Implement login logic
-      // const response = await loginUser(email, password);
-      // router.replace('/');
-    } catch (error) {
+      const user = await login({ email, password });
+      setUser(user);
+      router.replace('/index');
+    } catch (error: any) {
       console.error('Login error:', error);
+      Alert.alert(
+        'Login Failed',
+        error.response?.data?.message || 'An error occurred during login'
+      );
     } finally {
       setLoading(false);
     }

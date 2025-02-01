@@ -74,7 +74,7 @@ export default function HomeScreen() {
       {/* Quick Actions */}
       <TouchableOpacity
         style={[styles.studyButton, { backgroundColor: '#6c5ce7' }]}
-        onPress={() => router.push('/study')}
+        onPress={() => router.push('/decks')}
       >
         <Text style={styles.studyButtonText}>Start Studying</Text>
         <Ionicons name="arrow-forward" size={20} color="#fff" />

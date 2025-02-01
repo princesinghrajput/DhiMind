@@ -1,6 +1,8 @@
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useAuth } from '../contexts/AuthContext';
+import { useState } from 'react';
 
 const settingsOptions = [
   { id: 'notifications', title: 'Notifications', icon: 'notifications' },
@@ -15,20 +17,24 @@ export default function ProfileScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const router = useRouter();
+  const { user } = useAuth();
+  const [avatar, setAvatar] = useState(
+    user?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || '')}&size=200`
+  );
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: isDark ? '#121212' : '#f5f5f5' }]}>
       {/* Profile Header */}
       <View style={[styles.header, { backgroundColor: isDark ? '#1a1b1e' : '#fff' }]}>
         <Image
-          source={{ uri: 'https://ui-avatars.com/api/?name=John+Doe&size=200' }}
+          source={{ uri: avatar }}
           style={styles.avatar}
         />
         <Text style={[styles.name, { color: isDark ? '#fff' : '#000' }]}>
-          John Doe
+          {user?.name}
         </Text>
         <Text style={[styles.email, { color: isDark ? '#aaa' : '#666' }]}>
-          john.doe@example.com
+          {user?.email}
         </Text>
         <TouchableOpacity 
           style={styles.editButton}
