@@ -2,7 +2,8 @@ import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, useColorSc
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { getUserProfile, logout } from '@/services/auth.service';
 
 const settingsOptions = [
   { id: 'notifications', title: 'Notifications', icon: 'notifications' },
@@ -17,24 +18,46 @@ export default function ProfileScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const router = useRouter();
-  const { user } = useAuth();
-  const [avatar, setAvatar] = useState(
-    user?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || '')}&size=200`
-  );
+  const { user, setUser } = useAuth();
+  const [userProfile, setUserProfile] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        const profile = await getUserProfile();
+        setUserProfile(profile);
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+      }
+    };
+    fetchUserProfile();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setUser(null);
+      router.replace('/auth/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  const defaultAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || '')}&size=200`;
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: isDark ? '#121212' : '#f5f5f5' }]}>
       {/* Profile Header */}
       <View style={[styles.header, { backgroundColor: isDark ? '#1a1b1e' : '#fff' }]}>
         <Image
-          source={{ uri: avatar }}
+          source={{ uri: userProfile?.avatar || defaultAvatar }}
           style={styles.avatar}
         />
         <Text style={[styles.name, { color: isDark ? '#fff' : '#000' }]}>
-          {user?.name}
+          {userProfile?.name || user?.name}
         </Text>
         <Text style={[styles.email, { color: isDark ? '#aaa' : '#666' }]}>
-          {user?.email}
+          {userProfile?.email || user?.email}
         </Text>
         <TouchableOpacity 
           style={styles.editButton}
@@ -91,6 +114,7 @@ export default function ProfileScreen() {
       {/* Logout Button */}
       <TouchableOpacity
         style={[styles.logoutButton, { backgroundColor: isDark ? '#1a1b1e' : '#fff' }]}
+        onPress={handleLogout}
       >
         <Ionicons name="log-out" size={24} color="#ff6b6b" style={styles.logoutIcon} />
         <Text style={[styles.logoutText, { color: '#ff6b6b' }]}>Log Out</Text>

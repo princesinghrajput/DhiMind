@@ -94,9 +94,35 @@ export const getCurrentUser = async (): Promise<User | null> => {
 };
 
 // Update user profile
-export const updateUserProfile = async (profileData: Partial<Omit<User, '_id' | 'token'>>): Promise<User> => {
+export const updateUserProfile = async (profileData: Partial<Omit<User, '_id' | 'token'>>, avatarUri?: string): Promise<User> => {
   try {
-    const { data } = await apiClient.put('/auth/profile', profileData);
+    const formData = new FormData();
+
+    // Add profile data
+    (Object.keys(profileData) as Array<keyof typeof profileData>).forEach(key => {
+      if (key !== 'avatar' && profileData[key] !== undefined) {
+        formData.append(key, profileData[key] as string);
+      }
+    });
+
+    // Add avatar if provided
+    if (avatarUri) {
+      const filename = avatarUri.split('/').pop() || 'avatar.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
+      
+      formData.append('avatar', {
+        uri: avatarUri,
+        name: filename,
+        type,
+      } as any);
+    }
+
+    const { data } = await apiClient.put('/auth/profile', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
     return data;
   } catch (error) {
     console.error('Update profile error:', error);

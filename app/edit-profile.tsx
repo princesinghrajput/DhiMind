@@ -78,11 +78,10 @@ export default function EditProfileScreen() {
         name,
         email,
         bio,
-        avatar,
-      });
+      }, avatar);
       setUser({ ...authUser, ...updatedProfile });
       Alert.alert('Success', 'Profile updated successfully');
-      router.back();
+      router.replace('/profile');
     } catch (error) {
       console.error('Update profile error:', error);
       Alert.alert('Error', 'Failed to update profile');
