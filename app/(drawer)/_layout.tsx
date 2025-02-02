@@ -85,14 +85,14 @@ export default function DrawerLayout() {
           ),
         }}
       />
-      <Drawer.Screen
-        name="stats"
+        <Drawer.Screen
+        name="deck/[id]/analytics"
         options={{
-          title: 'Statistics',
+          title: 'Analytics',
           drawerLabel: ({ focused }) => (
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Ionicons
-                name="stats-chart"
+                name="bar-chart"
                 size={22}
                 color={focused ? '#ffffff' : (isDark ? COLORS.dark.text : COLORS.light.text)}
                 style={{ marginRight: 12 }}
@@ -104,7 +104,7 @@ export default function DrawerLayout() {
                   fontWeight: '500',
                 }}
               >
-                Statistics
+                Analytics
               </Text>
             </View>
           ),
@@ -135,10 +135,40 @@ export default function DrawerLayout() {
           ),
         }}
       />
+    
+
+      {/* Hidden Routes */}
       <Drawer.Screen
         name="study"
-        options={{ headerShown: false, drawerStyle:{display:'none'}}}
+        options={{
+          drawerItemStyle: { display: 'none' }
+        }}
       />
+      <Drawer.Screen
+        name="category/[id]"
+        options={{
+          drawerItemStyle: { display: 'none' }
+        }}
+      />
+      <Drawer.Screen
+        name="deck/[id]"
+        options={{
+          drawerItemStyle: { display: 'none' }
+        }}
+      />
+      <Drawer.Screen
+        name="deck/new"
+        options={{
+          drawerItemStyle: { display: 'none' }
+        }}
+      />
+      <Drawer.Screen
+        name="deck/[id]/study"
+        options={{
+          drawerItemStyle: { display: 'none' }
+        }}
+      />
+    
     </Drawer>
   );
 } 
