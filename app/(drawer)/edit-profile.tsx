@@ -14,10 +14,10 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, FONTS, SPACING, SHADOWS } from '../constants/theme';
+import { COLORS, FONTS, SPACING, SHADOWS } from '../../constants/theme';
 import * as ImagePicker from 'expo-image-picker';
-import { useAuth } from '../contexts/AuthContext';
-import { getUserProfile, updateUserProfile } from '../services/auth.service';
+import { useAuth } from '../../contexts/AuthContext';
+import { getUserProfile, updateUserProfile } from '../../services/auth.service';
 
 export default function EditProfileScreen() {
   const { user: authUser, setUser } = useAuth();

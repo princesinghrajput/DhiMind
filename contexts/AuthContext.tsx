@@ -1,11 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { getCurrentUser } from '../services/auth.service';
 
-interface User {
+export interface User {
   _id: string;
   name: string;
   email: string;
   token: string;
+  avatar?: string;
+  bio?: string;
 }
 
 interface AuthContextType {

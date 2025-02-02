@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { useEffect, useState } from 'react';
 import { getUserProfile, logout } from '@/services/auth.service';
 

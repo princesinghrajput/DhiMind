@@ -55,7 +55,7 @@ export default function DeckDetailScreen() {
       <View style={styles.actionButtons}>
         <TouchableOpacity
           style={[styles.actionButton, { backgroundColor: '#6c5ce7' }]}
-          onPress={() => router.push('/study')}
+          onPress={() => router.push('/index')}
         >
           <Ionicons name="play" size={20} color="#fff" />
           <Text style={styles.actionButtonText}>Study Now</Text>
