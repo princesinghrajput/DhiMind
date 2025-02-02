@@ -11,6 +11,9 @@ export interface Card {
   easeFactor: number;
   repetitions: number;
   status: 'new' | 'learning' | 'review' | 'relearning';
+  lastReviewed?: string;
+  lastRating?: number;
+  needsMorePractice?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -19,6 +22,14 @@ interface CreateCardData {
   front: string;
   back: string;
   deckId: string;
+}
+
+interface ReviewData {
+  interval: number;
+  easeFactor: number;
+  repetitions: number;
+  status: 'new' | 'learning' | 'review' | 'relearning';
+  nextReview: string;
 }
 
 // Get all cards in a deck
@@ -76,9 +87,14 @@ export const deleteCard = async (id: string): Promise<void> => {
 };
 
 // Update card review status
-export const updateCardReview = async (id: string, quality: number): Promise<Card> => {
+export const updateCardReview = async (id: string, quality: number, reviewData: ReviewData): Promise<Card> => {
   try {
-    const { data } = await apiClient.patch(`/cards/${id}/review`, { quality });
+    const { data } = await apiClient.patch(`/cards/${id}/review`, {
+      quality,
+      needsMorePractice: quality <= 3,
+      lastRating: quality,
+      ...reviewData
+    });
     return data;
   } catch (error) {
     console.error('Update card review error:', error);

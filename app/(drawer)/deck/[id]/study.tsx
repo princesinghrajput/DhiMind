@@ -15,6 +15,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '../../../../constants/Colors';
 import { getDeckCards, Card, updateCardReview } from '../../../../services/card.service';
+import { calculateNextReview, convertRating } from '../../../../utils/spaced-repetition';
 
 const { width } = Dimensions.get('window');
 const ROTATION_DURATION = 300;
@@ -28,6 +29,7 @@ interface StudySession {
   newCards: number;
   reviewCards: number;
   learningCards: number;
+  isReviewMode: boolean;
 }
 
 interface GroupedCards {
@@ -42,10 +44,12 @@ export default function StudyScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [cards, setCards] = useState<Card[]>([]);
+  const [difficultCards, setDifficultCards] = useState<Card[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [continuousMode, setContinuousMode] = useState(true);
+  const [sessionComplete, setSessionComplete] = useState(false);
   const [sessionStats, setSessionStats] = useState({
     totalReviewed: 0,
     correct: 0,
@@ -55,6 +59,7 @@ export default function StudyScreen() {
     newCards: 0,
     reviewCards: 0,
     learningCards: 0,
+    isReviewMode: false,
   });
 
   // Animation refs
@@ -63,6 +68,25 @@ export default function StudyScreen() {
   const scaleAnimation = useRef(new Animated.Value(1)).current;
   const nextCardScale = useRef(new Animated.Value(0.9)).current;
 
+  // Reset session state
+  const resetSession = useCallback(() => {
+    setCurrentIndex(0);
+    setIsFlipped(false);
+    setDifficultCards([]);
+    setSessionComplete(false);
+    setSessionStats({
+      totalReviewed: 0,
+      correct: 0,
+      streak: 0,
+    });
+    setStudySession({
+      newCards: 0,
+      reviewCards: 0,
+      learningCards: 0,
+      isReviewMode: false,
+    });
+  }, []);
+
   useEffect(() => {
     loadCards();
   }, []);
@@ -70,6 +94,8 @@ export default function StudyScreen() {
   const loadCards = async () => {
     try {
       setLoading(true);
+      resetSession(); // Reset session state before loading new cards
+      
       // Use getDeckCards instead of getDueCards to get all cards
       const allCards = await getDeckCards(id as string);
       console.log('All cards received:', allCards);
@@ -94,8 +120,12 @@ export default function StudyScreen() {
         relearning: [],
       };
 
-      // Group cards by their status, treating undefined status as 'new'
-      cards.forEach(card => {
+      // First, separate cards that need more practice
+      const cardsNeedingPractice = cards.filter(card => card.needsMorePractice);
+      const otherCards = cards.filter(card => !card.needsMorePractice);
+
+      // Group remaining cards by their status
+      otherCards.forEach(card => {
         // If the card has no status or nextReview, it's a new card
         if (!card.status || !card.nextReview) {
           grouped.new.push({
@@ -133,8 +163,23 @@ export default function StudyScreen() {
         });
       });
 
-      // Organize cards in optimal learning sequence
+      // Sort cards needing practice by their last rating (hardest first)
+      cardsNeedingPractice.sort((a, b) => {
+        const ratingA = a.lastRating || 3;
+        const ratingB = b.lastRating || 3;
+        if (ratingA === ratingB) {
+          return (a.easeFactor || 2.5) - (b.easeFactor || 2.5);
+        }
+        return ratingA - ratingB;
+      });
+
+      // Organize cards in optimal learning sequence:
+      // 1. Cards needing practice
+      // 2. Learning/Relearning cards
+      // 3. Review cards
+      // 4. New cards
       const sortedCards = [
+        ...cardsNeedingPractice,
         ...grouped.learning,
         ...grouped.relearning,
         ...grouped.review,
@@ -149,6 +194,7 @@ export default function StudyScreen() {
           newCards: grouped.new.length,
           reviewCards: grouped.review.length,
           learningCards: grouped.learning.length + grouped.relearning.length,
+          isReviewMode: false,
         });
       } else {
         Alert.alert(
@@ -255,14 +301,121 @@ export default function StudyScreen() {
     }).start(() => setIsFlipped(!isFlipped));
   }, [isFlipped, flipAnimation]);
 
-  const handleRate = async (quality: number) => {
-    if (submitting) return;
+  const getNextReviewSuggestion = useCallback((cards: Card[]) => {
+    // Get all future review dates
+    const reviewDates = cards
+      .map(card => new Date(card.nextReview))
+      .filter(date => date > new Date())
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    if (reviewDates.length === 0) return null;
+
+    // Get the earliest and most frequent review dates
+    const earliestReview = reviewDates[0];
+    const nextBatch = reviewDates.filter(date => {
+      // Consider cards due within 24 hours of the earliest review
+      const hoursDiff = (date.getTime() - earliestReview.getTime()) / (1000 * 60 * 60);
+      return hoursDiff <= 24;
+    });
+
+    // Calculate time until next review
+    const now = new Date();
+    const hoursUntilReview = Math.max(0, Math.round((earliestReview.getTime() - now.getTime()) / (1000 * 60 * 60)));
+    const daysUntilReview = Math.floor(hoursUntilReview / 24);
+    const remainingHours = hoursUntilReview % 24;
+
+    // Format the suggestion message
+    let timeMessage;
+    if (daysUntilReview > 0) {
+      timeMessage = `${daysUntilReview} day${daysUntilReview > 1 ? 's' : ''}`;
+      if (remainingHours > 0) {
+        timeMessage += ` and ${remainingHours} hour${remainingHours > 1 ? 's' : ''}`;
+      }
+    } else {
+      timeMessage = `${remainingHours} hour${remainingHours > 1 ? 's' : ''}`;
+    }
+
+    return {
+      nextReview: earliestReview,
+      cardsCount: nextBatch.length,
+      timeMessage
+    };
+  }, []);
+
+  const finishSession = useCallback(() => {
+    const accuracy = Math.round((sessionStats.correct / sessionStats.totalReviewed) * 100);
+    setSessionComplete(true);
+
+    // Get next review suggestion
+    const suggestion = getNextReviewSuggestion(cards);
+    
+    let completionMessage = `Great job! You've completed all cards with ${accuracy}% accuracy and a streak of ${sessionStats.streak}!\n\nNext review times have been scheduled based on your performance.`;
+    
+    if (suggestion) {
+      completionMessage += `\n\n📅 Next review recommended in ${suggestion.timeMessage}`;
+      if (suggestion.cardsCount > 1) {
+        completionMessage += `\n(${suggestion.cardsCount} cards will be ready for review)`;
+      } else {
+        completionMessage += '\n(1 card will be ready for review)';
+      }
+    }
+
+    Alert.alert(
+      'Session Complete',
+      completionMessage,
+      [{ 
+        text: 'OK', 
+        onPress: () => {
+          router.back();
+        }
+      }]
+    );
+  }, [sessionStats, cards, router, getNextReviewSuggestion]);
+
+  const handleRate = async (rating: number) => {
+    if (submitting || sessionComplete) return; // Prevent rating if session is complete
     setSubmitting(true);
 
     try {
       const card = cards[currentIndex];
-      await updateCardReview(card._id, quality);
       
+      // Convert our 1-3 rating to Anki's 0-5 scale
+      const quality = convertRating(rating);
+      
+      // Calculate next review schedule using SM2 algorithm
+      const nextReview = calculateNextReview(
+        quality,
+        card.interval || 0,
+        card.easeFactor || 2.5,
+        card.repetitions || 0,
+        card.status || 'new'
+      );
+
+      // Update card with new review schedule
+      await updateCardReview(card._id, quality, {
+        interval: nextReview.interval,
+        easeFactor: nextReview.easeFactor,
+        repetitions: nextReview.repetitions,
+        status: nextReview.status,
+        nextReview: nextReview.nextReview.toISOString()
+      });
+      
+      // Update the card in our local state
+      setCards(prevCards => {
+        const newCards = [...prevCards];
+        newCards[currentIndex] = {
+          ...card,
+          interval: nextReview.interval,
+          easeFactor: nextReview.easeFactor,
+          repetitions: nextReview.repetitions,
+          status: nextReview.status,
+          nextReview: nextReview.nextReview.toISOString(),
+          lastRating: quality,
+          needsMorePractice: quality <= 3 // Mark cards rated Hard or Good as needing practice
+        };
+        return newCards;
+      });
+
       // Update session stats
       setSessionStats(prev => {
         const isCorrect = quality >= 3;
@@ -273,22 +426,50 @@ export default function StudyScreen() {
         };
       });
 
-      // Update study session stats
+      // Update study session stats based on new status
       setStudySession(prev => {
         const newStats = { ...prev };
+        // Decrement count for old status
         if (card.status === 'new') newStats.newCards--;
         else if (card.status === 'review') newStats.reviewCards--;
-        else if (card.status === 'learning') newStats.learningCards--;
+        else if (card.status === 'learning' || card.status === 'relearning') {
+          newStats.learningCards--;
+        }
+        
+        // Increment count for new status
+        if (nextReview.status === 'new') newStats.newCards++;
+        else if (nextReview.status === 'review') newStats.reviewCards++;
+        else if (nextReview.status === 'learning' || nextReview.status === 'relearning') {
+          newStats.learningCards++;
+        }
         return newStats;
       });
 
       if (currentIndex === cards.length - 1) {
-        const accuracy = Math.round((sessionStats.correct / sessionStats.totalReviewed) * 100);
-        Alert.alert(
-          'Session Complete',
-          `Great job! You've completed all cards with ${accuracy}% accuracy and a streak of ${sessionStats.streak}!`,
-          [{ text: 'OK', onPress: () => router.back() }]
-        );
+        // Get count of cards that need more practice
+        const cardsNeedingPractice = cards.filter(c => c.needsMorePractice).length;
+        
+        if (cardsNeedingPractice > 0) {
+          Alert.alert(
+            'Review Needed Cards',
+            `You have ${cardsNeedingPractice} cards that need more practice. Would you like to review them now?`,
+            [
+              {
+                text: 'Review',
+                onPress: () => {
+                  // Reload cards to get the prioritized order
+                  loadCards();
+                }
+              },
+              {
+                text: 'Finish',
+                onPress: finishSession
+              }
+            ]
+          );
+        } else {
+          finishSession();
+        }
       } else if (continuousMode) {
         autoAdvance();
       } else {
@@ -298,6 +479,7 @@ export default function StudyScreen() {
         }
       }
     } catch (error) {
+      console.error('Review error:', error);
       Alert.alert('Error', 'Failed to update card status');
     } finally {
       setSubmitting(false);
@@ -338,6 +520,14 @@ export default function StudyScreen() {
     }),
   };
 
+  // Add cleanup effect
+  useEffect(() => {
+    return () => {
+      // Reset session when component unmounts
+      resetSession();
+    };
+  }, [resetSession]);
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -346,11 +536,12 @@ export default function StudyScreen() {
     );
   }
 
-  // Check if we have cards before rendering the study interface
-  if (!cards || cards.length === 0) {
+  if (sessionComplete || !cards || cards.length === 0) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.emptyText}>No cards available for review</Text>
+        <Text style={styles.emptyText}>
+          {sessionComplete ? 'Session complete' : 'No cards available for review'}
+        </Text>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
