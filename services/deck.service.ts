@@ -113,4 +113,14 @@ export const updateDeckStats = async (id: string, statsData: UpdateStatsData): P
     console.error('Update deck stats error:', error);
     throw error;
   }
+};
+
+export const getDeckAnalytics = async (deckId: string, timeRange: string) => {
+  try {
+    const response = await apiClient.get(`/decks/${deckId}/analytics?timeRange=${timeRange}`);
+    return response.data;
+  } catch (error) {
+    console.error('Get deck analytics error:', error);
+    throw error;
+  }
 }; 
