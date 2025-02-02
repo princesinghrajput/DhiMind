@@ -70,7 +70,7 @@ export default function HomeScreen() {
         styles.categoryCard,
         { backgroundColor: isDark ? '#1a1b1e' : '#fff' }
       ]}
-      onPress={() => router.push('/decks')}
+      onPress={() => router.push(`/category/${item._id}`)}
     >
       <Text style={styles.categoryIcon}>{item.icon}</Text>
       <Text style={[styles.categoryTitle, { color: isDark ? '#fff' : '#000' }]}>

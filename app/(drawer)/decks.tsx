@@ -22,6 +22,15 @@ export default function DecksScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [decks, setDecks] = useState<DeckWithNextReview[]>([]);
 
+  // Helper function to get color based on retention percentage
+  const getRetentionColor = (retention: number) => {
+    if (retention >= 90) return '#4CAF50'; // Green for excellent
+    if (retention >= 70) return '#8BC34A'; // Light green for good
+    if (retention >= 50) return '#FFC107'; // Amber for okay
+    if (retention >= 30) return '#FF9800'; // Orange for needs work
+    return '#F44336'; // Red for poor
+  };
+
   const getNextReviewInfo = async (deck: Deck): Promise<DeckWithNextReview> => {
     try {
       const cards = await getDeckCards(deck._id);
@@ -30,7 +39,8 @@ export default function DecksScreen() {
           ...deck,
           totalCards: 0,
           dueCards: 0,
-          retention: 0
+          retention: 0,
+          category: deck.category
         };
       }
 
@@ -71,6 +81,7 @@ export default function DecksScreen() {
       if (dueCards.length > 0) {
         return {
           ...deck,
+          category: deck.category,
           totalCards: cards.length,
           dueCards: dueCards.length,
           retention: Math.round(retention),
@@ -108,6 +119,7 @@ export default function DecksScreen() {
 
         return {
           ...deck,
+          category: deck.category,
           totalCards: cards.length,
           dueCards: dueCards.length,
           retention: Math.round(retention),
@@ -121,6 +133,7 @@ export default function DecksScreen() {
       // No cards due or upcoming
       return {
         ...deck,
+        category: deck.category,
         totalCards: cards.length,
         dueCards: 0,
         retention: Math.round(retention)
@@ -128,17 +141,22 @@ export default function DecksScreen() {
 
     } catch (error) {
       console.error('Error getting next review info:', error);
-      return deck;
+      return {
+        ...deck,
+        category: deck.category
+      };
     }
   };
 
   const loadDecks = async () => {
     try {
       const data = await getDecks();
+      console.log('Raw decks data:', JSON.stringify(data, null, 2));
       // Get next review info for each deck
       const decksWithReviews = await Promise.all(
         data.map(deck => getNextReviewInfo(deck))
       );
+      console.log('Decks with reviews:', JSON.stringify(decksWithReviews, null, 2));
       setDecks(decksWithReviews);
     } catch (error) {
       Alert.alert('Error', 'Failed to load decks');
@@ -157,89 +175,87 @@ export default function DecksScreen() {
     loadDecks();
   };
 
-  const renderDeckCard = ({ item }: { item: DeckWithNextReview }) => (
-    <TouchableOpacity
-      style={[styles.deckCard, { backgroundColor: isDark ? '#1a1b1e' : '#fff' }]}
-      onPress={() => router.push(`/deck/${item._id}`)}
-    >
-      <View style={styles.deckHeader}>
-        <Text style={[styles.deckTitle, { color: isDark ? '#fff' : '#000' }]}>{item.title}</Text>
-        <TouchableOpacity>
-          <Ionicons
-            name="ellipsis-vertical"
-            size={20}
-            color={isDark ? '#fff' : '#000'}
-          />
-        </TouchableOpacity>
-      </View>
-      
-      {item.description && (
-        <Text style={[styles.deckDescription, { color: isDark ? '#aaa' : '#666' }]}>
-          {item.description}
-        </Text>
-      )}
-      
-      <View style={styles.deckStats}>
-        <View style={styles.statItem}>
-          <Text style={[styles.statNumber, { color: isDark ? '#fff' : '#000' }]}>
-            {item.totalCards}
-          </Text>
-          <Text style={[styles.statLabel, { color: isDark ? '#aaa' : '#666' }]}>Total</Text>
+  const renderDeckCard = ({ item }: { item: DeckWithNextReview }) => {
+    console.log('Deck data:', JSON.stringify(item, null, 2)); // Debug log
+    
+    return (
+      <TouchableOpacity
+        style={[styles.deckCard, { backgroundColor: isDark ? '#1a1b1e' : '#fff' }]}
+        onPress={() => router.push(`/deck/${item._id}`)}
+      >
+        <View style={styles.deckHeader}>
+          <View style={styles.titleContainer}>
+            <Text style={styles.categoryIcon}>{item.category?.icon || '📚'}</Text>
+            <Text style={[styles.deckTitle, { color: isDark ? '#fff' : '#000' }]}>{item.title}</Text>
+          </View>
+          <TouchableOpacity>
+            <Ionicons
+              name="ellipsis-vertical"
+              size={20}
+              color={isDark ? '#fff' : '#000'}
+            />
+          </TouchableOpacity>
         </View>
         
-        <View style={styles.statItem}>
-          <Text style={[styles.statNumber, { color: isDark ? '#fff' : '#000' }]}>
-            {item.dueCards}
+        {item.description && (
+          <Text style={[styles.deckDescription, { color: isDark ? '#aaa' : '#666' }]}>
+            {item.description}
           </Text>
-          <Text style={[styles.statLabel, { color: isDark ? '#aaa' : '#666' }]}>Due</Text>
-        </View>
-
-        <View style={styles.statItem}>
-          <Text 
-            style={[
-              styles.statNumber, 
-              { color: getRetentionColor(item.retention || 0) }
-            ]}
-          >
-            {Math.round(item.retention || 0)}%
-          </Text>
-          <Text style={[styles.statLabel, { color: isDark ? '#aaa' : '#666' }]}>Retention</Text>
-        </View>
+        )}
         
-        <View style={styles.statItem}>
-          <View style={styles.nextReviewContainer}>
-            <Text style={[styles.statLabel, { color: isDark ? '#aaa' : '#666' }]}>
-              {item.nextReviewInfo ? 'Next review' : 'Last studied'}
+        <View style={styles.deckStats}>
+          <View style={styles.statItem}>
+            <Text style={[styles.statNumber, { color: isDark ? '#fff' : '#000' }]}>
+              {item.totalCards}
             </Text>
-            {item.nextReviewInfo ? (
-              <>
-                <Text style={[styles.nextReviewTime, { color: Colors.primary }]}>
-                  in {item.nextReviewInfo.timeMessage}
-                </Text>
-                <Text style={[styles.nextReviewCards, { color: isDark ? '#aaa' : '#666' }]}>
-                  ({item.nextReviewInfo.cardsCount} card{item.nextReviewInfo.cardsCount !== 1 ? 's' : ''})
-                </Text>
-              </>
-            ) : (
-              <Text style={[styles.lastStudied, { color: isDark ? '#fff' : '#000' }]}>
-                {item.lastStudied 
-                  ? formatDate(new Date(item.lastStudied))
-                  : 'Not studied yet'}
+            <Text style={[styles.statLabel, { color: isDark ? '#aaa' : '#666' }]}>Total</Text>
+          </View>
+          
+          <View style={styles.statItem}>
+            <Text style={[styles.statNumber, { color: isDark ? '#fff' : '#000' }]}>
+              {item.dueCards}
+            </Text>
+            <Text style={[styles.statLabel, { color: isDark ? '#aaa' : '#666' }]}>Due</Text>
+          </View>
+
+          <View style={styles.statItem}>
+            <Text 
+              style={[
+                styles.statNumber, 
+                { color: getRetentionColor(item.retention || 0) }
+              ]}
+            >
+              {Math.round(item.retention || 0)}%
+            </Text>
+            <Text style={[styles.statLabel, { color: isDark ? '#aaa' : '#666' }]}>Retention</Text>
+          </View>
+          
+          <View style={styles.statItem}>
+            <View style={styles.nextReviewContainer}>
+              <Text style={[styles.statLabel, { color: isDark ? '#aaa' : '#666' }]}>
+                {item.nextReviewInfo ? 'Next review' : 'Last studied'}
               </Text>
-            )}
+              {item.nextReviewInfo ? (
+                <>
+                  <Text style={[styles.nextReviewTime, { color: Colors.primary }]}>
+                    in {item.nextReviewInfo.timeMessage}
+                  </Text>
+                  <Text style={[styles.nextReviewCards, { color: isDark ? '#aaa' : '#666' }]}>
+                    ({item.nextReviewInfo.cardsCount} card{item.nextReviewInfo.cardsCount !== 1 ? 's' : ''})
+                  </Text>
+                </>
+              ) : (
+                <Text style={[styles.lastStudied, { color: isDark ? '#fff' : '#000' }]}>
+                  {item.lastStudied 
+                    ? formatDate(new Date(item.lastStudied))
+                    : 'Not studied yet'}
+                </Text>
+              )}
+            </View>
           </View>
         </View>
-      </View>
-    </TouchableOpacity>
-  );
-
-  // Helper function to get color based on retention percentage
-  const getRetentionColor = (retention: number) => {
-    if (retention >= 90) return '#4CAF50'; // Green for excellent
-    if (retention >= 70) return '#8BC34A'; // Light green for good
-    if (retention >= 50) return '#FFC107'; // Amber for okay
-    if (retention >= 30) return '#FF9800'; // Orange for needs work
-    return '#F44336'; // Red for poor
+      </TouchableOpacity>
+    );
   };
 
   if (loading) {
@@ -376,5 +392,15 @@ const styles = StyleSheet.create({
   nextReviewCards: {
     fontSize: 12,
     marginTop: 2,
+  },
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  categoryIcon: {
+    fontSize: 24,
+    marginRight: 8,
   },
 }); 

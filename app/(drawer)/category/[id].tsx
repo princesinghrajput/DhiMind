@@ -11,6 +11,7 @@ import AddDeckModal from '../../../components/AddDeckModal';
 
 export default function CategoryScreen() {
   const { id } = useLocalSearchParams();
+  console.log("Prince.........", id);
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -101,7 +102,7 @@ export default function CategoryScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.categoryInfo}>
-          <Ionicons name={category?.icon || 'folder'} size={24} color={Colors.primary} />
+          <Text style={styles.categoryIcon}>{category?.icon}</Text>
           <Text style={styles.categoryTitle}>{category?.title}</Text>
         </View>
         <TouchableOpacity
@@ -158,6 +159,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  categoryIcon: {
+    fontSize: 24,
+    marginBottom: 8,
   },
   categoryTitle: {
     fontSize: 20,
