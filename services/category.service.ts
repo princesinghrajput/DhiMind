@@ -26,6 +26,17 @@ export const getCategories = async (): Promise<Category[]> => {
   }
 };
 
+// Get single category
+export const getCategory = async (id: string): Promise<Category> => {
+  try {
+    const { data } = await apiClient.get(`/categories/${id}`);
+    return data;
+  } catch (error) {
+    console.error('Get category error:', error);
+    throw error;
+  }
+};
+
 // Create new category
 export const createCategory = async (categoryData: CreateCategoryData): Promise<Category> => {
   try {

@@ -1,52 +1,44 @@
-import { View, Text, FlatList, TouchableOpacity, useColorScheme, StyleSheet } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, FlatList, TouchableOpacity, useColorScheme, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-
-interface Deck {
-  id: string;
-  title: string;
-  description: string;
-  totalCards: number;
-  dueCards: number;
-  lastStudied: string;
-}
-
-const sampleDecks: Deck[] = [
-  {
-    id: '1',
-    title: '3D Illustration Basics',
-    description: 'Learn the fundamentals of 3D illustration',
-    totalCards: 12,
-    dueCards: 3,
-    lastStudied: '2 days ago',
-  },
-  {
-    id: '2',
-    title: 'Typography Fundamentals',
-    description: 'Master the basics of typography and font design',
-    totalCards: 15,
-    dueCards: 5,
-    lastStudied: '1 day ago',
-  },
-  {
-    id: '3',
-    title: 'Color Theory',
-    description: 'Understanding color relationships and meanings',
-    totalCards: 20,
-    dueCards: 8,
-    lastStudied: '3 days ago',
-  },
-];
+import { getDecks, Deck } from '../../services/deck.service';
+import Colors from '../../constants/Colors';
+import { formatDate } from '../../utils/date';
 
 export default function DecksScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [decks, setDecks] = useState<Deck[]>([]);
+
+  const loadDecks = async () => {
+    try {
+      const data = await getDecks();
+      setDecks(data);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to load decks');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDecks();
+  }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadDecks();
+  };
 
   const renderDeckCard = ({ item }: { item: Deck }) => (
     <TouchableOpacity
       style={[styles.deckCard, { backgroundColor: isDark ? '#1a1b1e' : '#fff' }]}
-      onPress={() => router.push({ pathname: '/(deck)/[id]', params: { id: item.id } })}
+      onPress={() => router.push(`/deck/${item._id}`)}
     >
       <View style={styles.deckHeader}>
         <Text style={[styles.deckTitle, { color: isDark ? '#fff' : '#000' }]}>{item.title}</Text>
@@ -59,9 +51,11 @@ export default function DecksScreen() {
         </TouchableOpacity>
       </View>
       
-      <Text style={[styles.deckDescription, { color: isDark ? '#aaa' : '#666' }]}>
-        {item.description}
-      </Text>
+      {item.description && (
+        <Text style={[styles.deckDescription, { color: isDark ? '#aaa' : '#666' }]}>
+          {item.description}
+        </Text>
+      )}
       
       <View style={styles.deckStats}>
         <View style={styles.statItem}>
@@ -83,25 +77,47 @@ export default function DecksScreen() {
             Last studied
           </Text>
           <Text style={[styles.lastStudied, { color: isDark ? '#fff' : '#000' }]}>
-            {item.lastStudied}
+            {item.lastStudied 
+              ? formatDate(new Date(item.lastStudied))
+              : 'Not studied yet'}
           </Text>
         </View>
       </View>
     </TouchableOpacity>
   );
 
+  if (loading) {
+    return (
+      <View style={[styles.centered, { backgroundColor: isDark ? '#121212' : '#f5f5f5' }]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: isDark ? '#121212' : '#f5f5f5' }]}>
       <FlatList
-        data={sampleDecks}
+        data={decks}
         renderItem={renderDeckCard}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item._id}
         contentContainerStyle={styles.listContainer}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={[styles.emptyText, { color: isDark ? '#fff' : '#000' }]}>
+              No decks yet
+            </Text>
+            <Text style={[styles.emptySubtext, { color: isDark ? '#aaa' : '#666' }]}>
+              Create your first deck to get started
+            </Text>
+          </View>
+        }
       />
       
       <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push('/(deck)/new')}
+        style={[styles.fab, { backgroundColor: Colors.primary }]}
+        onPress={() => router.push('/deck/new')}
       >
         <Ionicons name="add" size={24} color="#fff" />
       </TouchableOpacity>
@@ -112,6 +128,11 @@ export default function DecksScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   listContainer: {
     padding: 16,
@@ -166,7 +187,6 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#6c5ce7',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -174,5 +194,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 5,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    textAlign: 'center',
   },
 }); 
