@@ -14,18 +14,23 @@ interface FlashCard {
   id: string;
   front: string;
   back: string;
+  type: 'basic' | 'cloze';
+  clozeText?: string;
 }
 
 const sampleCards: FlashCard[] = [
   {
     id: '1',
+    type: 'basic',
     front: 'What is Typography?',
     back: 'Typography is the art and technique of arranging type to make written language legible, readable, and appealing when displayed.',
   },
   {
     id: '2',
-    front: 'What is kerning in typography?',
-    back: 'Kerning is the process of adjusting the spacing between characters in a proportional font, usually to achieve a visually pleasing result.',
+    type: 'cloze',
+    front: '',
+    back: '',
+    clozeText: '{{c1::Kerning}} is the process of adjusting the spacing between characters in a proportional font, usually to achieve a visually pleasing result.',
   },
 ];
 
@@ -77,15 +82,80 @@ export default function StudyScreen() {
     };
   });
 
+  const renderCardContent = () => {
+    if (!currentCard) return null;
+
+    if (currentCard.type === 'basic') {
+      return (
+        <View style={styles.basicCardContent}>
+          <Text style={[styles.cardLabel, { color: isDark ? '#aaa' : '#666' }]}>
+            {isShowingAnswer ? 'Answer' : 'Question'}
+          </Text>
+          <Text style={[styles.cardText, { color: isDark ? '#fff' : '#000' }]}>
+            {isShowingAnswer ? currentCard.back : currentCard.front}
+          </Text>
+        </View>
+      );
+    }
+
+    // Handle cloze card
+    if (currentCard.type === 'cloze' && currentCard.clozeText) {
+      const clozeText = currentCard.clozeText;
+      const parts = clozeText.split(/({{c1::.*?}})/g).filter(Boolean);
+
+      return (
+        <View style={styles.clozeCardContent}>
+          <Text style={[styles.cardLabel, { color: isDark ? '#aaa' : '#666' }]}>
+            Fill in the blank
+          </Text>
+          <View style={styles.clozeTextContainer}>
+            <Text style={[styles.cardText, { color: isDark ? '#fff' : '#000' }]}>
+              {parts.map((part, index) => {
+                const clozeMatch = part.match(/{{c1::(.*?)}}/);
+                if (clozeMatch) {
+                  if (isShowingAnswer) {
+                    return (
+                      <Text key={index} style={[
+                        styles.highlightedCloze,
+                        { backgroundColor: isDark ? '#6c5ce730' : '#6c5ce715' }
+                      ]}>
+                        {clozeMatch[1]}
+                      </Text>
+                    );
+                  }
+                  return (
+                    <View key={index} style={styles.blankContainer}>
+                      <Text style={[styles.clozeBlank, { 
+                        borderBottomColor: isDark ? '#666' : '#ddd',
+                        color: isDark ? '#666' : '#999'
+                      }]}>
+                        _____
+                      </Text>
+                    </View>
+                  );
+                }
+                return <Text key={index}>{part}</Text>;
+              })}
+            </Text>
+          </View>
+          {!isShowingAnswer && (
+            <Text style={[styles.hintText, { color: isDark ? '#aaa' : '#666' }]}>
+              Tap to reveal the answer
+            </Text>
+          )}
+        </View>
+      );
+    }
+
+    return null;
+  };
+
   const handleResponse = (quality: number) => {
-    // Here you would implement spaced repetition algorithm
-    // For MVP, we'll just move to the next card
     if (currentCardIndex < sampleCards.length - 1) {
       setCurrentCardIndex(currentCardIndex + 1);
       setIsShowingAnswer(false);
       flipValue.value = 0;
     } else {
-      // Session complete
       router.back();
     }
   };
@@ -99,17 +169,36 @@ export default function StudyScreen() {
       </View>
 
       <View style={styles.cardContainer}>
-        <TouchableOpacity activeOpacity={1} onPress={handleFlip} style={styles.cardWrapper}>
-          <Animated.View style={[styles.card, frontAnimatedStyle, { backgroundColor: isDark ? '#1a1b1e' : '#fff' }]}>
-            <Text style={[styles.cardText, { color: isDark ? '#fff' : '#000' }]}>
-              {currentCard.front}
-            </Text>
+        <TouchableOpacity 
+          activeOpacity={0.9} 
+          onPress={handleFlip} 
+          style={styles.cardWrapper}
+        >
+          <Animated.View 
+            style={[
+              styles.card, 
+              frontAnimatedStyle, 
+              { 
+                backgroundColor: isDark ? '#1a1b1e' : '#fff',
+                borderColor: isDark ? '#333' : '#eee',
+              }
+            ]}
+          >
+            {renderCardContent()}
           </Animated.View>
           
-          <Animated.View style={[styles.card, styles.cardBack, backAnimatedStyle, { backgroundColor: isDark ? '#1a1b1e' : '#fff' }]}>
-            <Text style={[styles.cardText, { color: isDark ? '#fff' : '#000' }]}>
-              {currentCard.back}
-            </Text>
+          <Animated.View 
+            style={[
+              styles.card, 
+              styles.cardBack, 
+              backAnimatedStyle, 
+              { 
+                backgroundColor: isDark ? '#1a1b1e' : '#fff',
+                borderColor: isDark ? '#333' : '#eee',
+              }
+            ]}
+          >
+            {renderCardContent()}
           </Animated.View>
         </TouchableOpacity>
       </View>
@@ -163,70 +252,116 @@ const { width, height } = Dimensions.get('window');
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
     padding: 16,
   },
   progress: {
-    alignSelf: 'flex-start',
-    marginBottom: 24,
+    alignItems: 'center',
+    marginBottom: 16,
   },
   progressText: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   cardContainer: {
-    width: width - 32,
-    height: height * 0.5,
-    marginBottom: 24,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
   },
   cardWrapper: {
-    flex: 1,
+    width: width - 48,
+    height: height * 0.45,
+    position: 'relative',
   },
   card: {
     ...StyleSheet.absoluteFillObject,
-    padding: 24,
     borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderWidth: 1,
+    padding: 24,
+    elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
   },
-  cardBack: {
-    transform: [{ rotateY: '180deg' }],
+  basicCardContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  clozeCardContent: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  cardLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 16,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    textAlign: 'center',
+  },
+  clozeTextContainer: {
+    backgroundColor: '#00000008',
+    padding: 20,
+    borderRadius: 12,
+    marginVertical: 8,
   },
   cardText: {
-    fontSize: 20,
-    textAlign: 'center',
+    fontSize: 18,
     lineHeight: 28,
+    textAlign: 'center',
+  },
+  blankContainer: {
+    display: 'inline',
+  },
+  highlightedCloze: {
+    color: '#6c5ce7',
+    fontWeight: '600',
+    borderRadius: 4,
+    overflow: 'hidden',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  clozeBlank: {
+    borderBottomWidth: 2,
+    paddingHorizontal: 20,
+    fontWeight: '500',
+    fontSize: 18,
   },
   buttonsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '100%',
     paddingHorizontal: 16,
+    paddingVertical: 24,
+    gap: 8,
   },
   button: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
     borderRadius: 12,
-    minWidth: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
   },
   buttonText: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-    textAlign: 'center',
+    fontWeight: '600',
+    fontSize: 15,
   },
   hint: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 24,
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 24,
   },
   hintText: {
-    marginLeft: 8,
     fontSize: 16,
   },
-}); 
+});

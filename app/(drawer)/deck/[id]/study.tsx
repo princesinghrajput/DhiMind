@@ -8,662 +8,297 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
-  PanResponder,
-  Switch,
+  useColorScheme,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '../../../../constants/Colors';
-import { getDeckCards, Card, updateCardReview } from '../../../../services/card.service';
-import { calculateNextReview, convertRating } from '../../../../utils/spaced-repetition';
+import { getDeckCards } from '../../../../services/card.service';
 
-const { width } = Dimensions.get('window');
-const ROTATION_DURATION = 300;
-const SWIPE_THRESHOLD = width * 0.3;
-const SWIPE_DURATION = 250;
-const AUTO_ADVANCE_DELAY = 1000; // 1 second delay before showing next card
-
-type CardStatus = 'new' | 'learning' | 'review' | 'relearning';
-
-interface StudySession {
-  newCards: number;
-  reviewCards: number;
-  learningCards: number;
-  isReviewMode: boolean;
-}
-
-interface GroupedCards {
-  new: Card[];
-  learning: Card[];
-  review: Card[];
-  relearning: Card[];
-}
+const { width, height } = Dimensions.get('window');
 
 export default function StudyScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+
   const [loading, setLoading] = useState(true);
-  const [cards, setCards] = useState<Card[]>([]);
-  const [difficultCards, setDifficultCards] = useState<Card[]>([]);
+  const [cards, setCards] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [continuousMode, setContinuousMode] = useState(true);
-  const [sessionComplete, setSessionComplete] = useState(false);
   const [sessionStats, setSessionStats] = useState({
     totalReviewed: 0,
     correct: 0,
     streak: 0,
   });
-  const [studySession, setStudySession] = useState<StudySession>({
-    newCards: 0,
-    reviewCards: 0,
-    learningCards: 0,
-    isReviewMode: false,
-  });
 
-  // Animation refs
+  // Animation values
   const flipAnimation = useRef(new Animated.Value(0)).current;
-  const swipeAnimation = useRef(new Animated.Value(0)).current;
-  const scaleAnimation = useRef(new Animated.Value(1)).current;
-  const nextCardScale = useRef(new Animated.Value(0.9)).current;
-
-  // Reset session state
-  const resetSession = useCallback(() => {
-    setCurrentIndex(0);
-    setIsFlipped(false);
-    setDifficultCards([]);
-    setSessionComplete(false);
-    setSessionStats({
-      totalReviewed: 0,
-      correct: 0,
-      streak: 0,
-    });
-    setStudySession({
-      newCards: 0,
-      reviewCards: 0,
-      learningCards: 0,
-      isReviewMode: false,
-    });
-  }, []);
 
   useEffect(() => {
     loadCards();
-  }, []);
+  }, [id]); // Add id as dependency to reload when deck changes
 
   const loadCards = async () => {
     try {
-      setLoading(true);
-      resetSession(); // Reset session state before loading new cards
-      
-      // Use getDeckCards instead of getDueCards to get all cards
-      const allCards = await getDeckCards(id as string);
-      console.log('All cards received:', allCards);
-      
-      // If allCards is undefined or null, treat it as an empty array
-      const cards = allCards || [];
-      
-      if (cards.length === 0) {
-        Alert.alert(
-          'No Cards',
-          'This deck has no cards yet. Add some cards first.',
-          [{ text: 'OK', onPress: () => router.back() }]
-        );
+      if (!id) {
+        console.error('No deck ID provided');
+        Alert.alert('Error', 'Invalid deck selected');
+        router.back();
         return;
       }
 
-      // Initialize grouped as an object with empty arrays for each status
-      const grouped: GroupedCards = {
-        new: [],
-        learning: [],
-        review: [],
-        relearning: [],
-      };
-
-      // First, separate cards that need more practice
-      const cardsNeedingPractice = cards.filter(card => card.needsMorePractice);
-      const otherCards = cards.filter(card => !card.needsMorePractice);
-
-      // Group remaining cards by their status
-      otherCards.forEach(card => {
-        // If the card has no status or nextReview, it's a new card
-        if (!card.status || !card.nextReview) {
-          grouped.new.push({
-            ...card,
-            status: 'new' as CardStatus,
-            nextReview: new Date().toISOString(),
-            easeFactor: 2.5,
-            interval: 0,
-            repetitions: 0
-          });
-        } else {
-          const status = card.status as CardStatus;
-          if (status in grouped) {
-            grouped[status].push(card);
-          } else {
-            grouped.new.push({
-              ...card,
-              status: 'new' as CardStatus
-            });
-          }
-        }
-      });
-
-      console.log('Grouped cards:', grouped);
-
-      // Sort each group by due date and difficulty
-      (Object.keys(grouped) as CardStatus[]).forEach(status => {
-        grouped[status].sort((a: Card, b: Card) => {
-          const dateA = new Date(a.nextReview || Date.now());
-          const dateB = new Date(b.nextReview || Date.now());
-          if (dateA.getTime() === dateB.getTime()) {
-            return (b.easeFactor || 2.5) - (a.easeFactor || 2.5);
-          }
-          return dateA.getTime() - dateB.getTime();
-        });
-      });
-
-      // Sort cards needing practice by their last rating (hardest first)
-      cardsNeedingPractice.sort((a, b) => {
-        const ratingA = a.lastRating || 3;
-        const ratingB = b.lastRating || 3;
-        if (ratingA === ratingB) {
-          return (a.easeFactor || 2.5) - (b.easeFactor || 2.5);
-        }
-        return ratingA - ratingB;
-      });
-
-      // Organize cards in optimal learning sequence:
-      // 1. Cards needing practice
-      // 2. Learning/Relearning cards
-      // 3. Review cards
-      // 4. New cards
-      const sortedCards = [
-        ...cardsNeedingPractice,
-        ...grouped.learning,
-        ...grouped.relearning,
-        ...grouped.review,
-        ...grouped.new,
-      ];
-
-      console.log('Final sorted cards:', sortedCards);
-
-      if (sortedCards.length > 0) {
-        setCards(sortedCards);
-        setStudySession({
-          newCards: grouped.new.length,
-          reviewCards: grouped.review.length,
-          learningCards: grouped.learning.length + grouped.relearning.length,
-          isReviewMode: false,
-        });
-      } else {
-        Alert.alert(
-          'No Cards Available',
-          'There are no cards available for review at this time.',
-          [{ text: 'OK', onPress: () => router.back() }]
-        );
+      setLoading(true);
+      const allCards = await getDeckCards(id as string);
+      console.log('Loaded cards for deck:', id, allCards);
+      
+      if (!Array.isArray(allCards)) {
+        console.error('Invalid cards data received:', allCards);
+        Alert.alert('Error', 'Failed to load cards');
+        return;
       }
+
+      // Filter out cards that don't belong to this deck
+      const deckCards = allCards.filter(card => card.deck === id);
+      if (deckCards.length === 0) {
+        Alert.alert('No Cards', 'This deck has no cards yet. Add some cards first!');
+        router.back();
+        return;
+      }
+
+      // Shuffle the cards for better study experience
+      const shuffledCards = [...deckCards].sort(() => Math.random() - 0.5);
+      setCards(shuffledCards);
+      setCurrentIndex(0); // Reset to first card
+      setSessionStats({
+        totalReviewed: 0,
+        correct: 0,
+        streak: 0,
+      });
     } catch (error) {
       console.error('Error loading cards:', error);
-      Alert.alert('Error', 'Failed to load cards. Please try again.');
-      router.back();
+      Alert.alert('Error', 'Failed to load cards');
     } finally {
       setLoading(false);
     }
   };
 
-  const autoAdvance = useCallback(() => {
-    if (!continuousMode) return;
-    
-    setTimeout(() => {
-      if (currentIndex < cards.length - 1) {
-        setCurrentIndex(prev => prev + 1);
-        if (isFlipped) {
-          handleFlip();
-        }
-      }
-    }, AUTO_ADVANCE_DELAY);
-  }, [continuousMode, currentIndex, cards.length, isFlipped]);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => !isFlipped,
-      onMoveShouldSetPanResponder: (_, { dx, dy }) => {
-        return !isFlipped && Math.abs(dx) > Math.abs(dy);
-      },
-      onPanResponderMove: (_, { dx }) => {
-        swipeAnimation.setValue(dx);
-        // Scale based on swipe distance
-        const scale = Math.max(0.95, 1 - Math.abs(dx) / (width * 2));
-        scaleAnimation.setValue(scale);
-        nextCardScale.setValue(Math.min(1, 0.9 + Math.abs(dx) / (width * 2)));
-      },
-      onPanResponderRelease: (_, { dx, vx }) => {
-        const swipeDirection = dx > 0 ? 1 : -1;
-        const isSwipeValid = Math.abs(dx) > SWIPE_THRESHOLD || Math.abs(vx) > 0.5;
-
-        if (isSwipeValid) {
-          Animated.parallel([
-            Animated.timing(swipeAnimation, {
-              toValue: swipeDirection * width * 1.5,
-              duration: SWIPE_DURATION,
-              useNativeDriver: true,
-            }),
-            Animated.timing(scaleAnimation, {
-              toValue: 0.8,
-              duration: SWIPE_DURATION,
-              useNativeDriver: true,
-            }),
-            Animated.timing(nextCardScale, {
-              toValue: 1,
-              duration: SWIPE_DURATION,
-              useNativeDriver: true,
-            }),
-          ]).start(() => {
-            handleRate(swipeDirection > 0 ? 5 : 1);
-            resetCardPosition();
-          });
-        } else {
-          Animated.parallel([
-            Animated.spring(swipeAnimation, {
-              toValue: 0,
-              useNativeDriver: true,
-              friction: 5,
-            }),
-            Animated.spring(scaleAnimation, {
-              toValue: 1,
-              useNativeDriver: true,
-              friction: 5,
-            }),
-            Animated.spring(nextCardScale, {
-              toValue: 0.9,
-              useNativeDriver: true,
-              friction: 5,
-            }),
-          ]).start();
-        }
-      },
-    })
-  ).current;
-
-  const resetCardPosition = () => {
-    swipeAnimation.setValue(0);
-    scaleAnimation.setValue(1);
-    nextCardScale.setValue(0.9);
-  };
-
-  const handleFlip = useCallback(() => {
+  const handleFlip = () => {
     const toValue = isFlipped ? 0 : 1;
-    Animated.timing(flipAnimation, {
+    Animated.spring(flipAnimation, {
       toValue,
-      duration: ROTATION_DURATION,
+      friction: 8,
+      tension: 45,
       useNativeDriver: true,
-    }).start(() => setIsFlipped(!isFlipped));
-  }, [isFlipped, flipAnimation]);
-
-  const getNextReviewSuggestion = useCallback((cards: Card[]) => {
-    // Get all future review dates
-    const reviewDates = cards
-      .map(card => new Date(card.nextReview))
-      .filter(date => date > new Date())
-      .sort((a, b) => a.getTime() - b.getTime());
-
-    if (reviewDates.length === 0) return null;
-
-    // Get the earliest and most frequent review dates
-    const earliestReview = reviewDates[0];
-    const nextBatch = reviewDates.filter(date => {
-      // Consider cards due within 24 hours of the earliest review
-      const hoursDiff = (date.getTime() - earliestReview.getTime()) / (1000 * 60 * 60);
-      return hoursDiff <= 24;
-    });
-
-    // Calculate time until next review
-    const now = new Date();
-    const hoursUntilReview = Math.max(0, Math.round((earliestReview.getTime() - now.getTime()) / (1000 * 60 * 60)));
-    const daysUntilReview = Math.floor(hoursUntilReview / 24);
-    const remainingHours = hoursUntilReview % 24;
-
-    // Format the suggestion message
-    let timeMessage;
-    if (daysUntilReview > 0) {
-      timeMessage = `${daysUntilReview} day${daysUntilReview > 1 ? 's' : ''}`;
-      if (remainingHours > 0) {
-        timeMessage += ` and ${remainingHours} hour${remainingHours > 1 ? 's' : ''}`;
-      }
-    } else {
-      timeMessage = `${remainingHours} hour${remainingHours > 1 ? 's' : ''}`;
-    }
-
-    return {
-      nextReview: earliestReview,
-      cardsCount: nextBatch.length,
-      timeMessage
-    };
-  }, []);
-
-  const finishSession = useCallback(() => {
-    const accuracy = Math.round((sessionStats.correct / sessionStats.totalReviewed) * 100);
-    setSessionComplete(true);
-
-    // Get next review suggestion
-    const suggestion = getNextReviewSuggestion(cards);
-    
-    let completionMessage = `Great job! You've completed all cards with ${accuracy}% accuracy and a streak of ${sessionStats.streak}!\n\nNext review times have been scheduled based on your performance.`;
-    
-    if (suggestion) {
-      completionMessage += `\n\n📅 Next review recommended in ${suggestion.timeMessage}`;
-      if (suggestion.cardsCount > 1) {
-        completionMessage += `\n(${suggestion.cardsCount} cards will be ready for review)`;
-      } else {
-        completionMessage += '\n(1 card will be ready for review)';
-      }
-    }
-
-    Alert.alert(
-      'Session Complete',
-      completionMessage,
-      [{ 
-        text: 'OK', 
-        onPress: () => {
-          router.back();
-        }
-      }]
-    );
-  }, [sessionStats, cards, router, getNextReviewSuggestion]);
-
-  const handleRate = async (rating: number) => {
-    if (submitting || sessionComplete) return; // Prevent rating if session is complete
-    setSubmitting(true);
-
-    try {
-      const card = cards[currentIndex];
-      
-      // Convert our 1-3 rating to Anki's 0-5 scale
-      const quality = convertRating(rating);
-      
-      // Calculate next review schedule using SM2 algorithm
-      const nextReview = calculateNextReview(
-        quality,
-        card.interval || 0,
-        card.easeFactor || 2.5,
-        card.repetitions || 0,
-        card.status || 'new'
-      );
-
-      // Update card with new review schedule
-      await updateCardReview(card._id, quality, {
-        interval: nextReview.interval,
-        easeFactor: nextReview.easeFactor,
-        repetitions: nextReview.repetitions,
-        status: nextReview.status,
-        nextReview: nextReview.nextReview.toISOString()
-      });
-      
-      // Update the card in our local state
-      setCards(prevCards => {
-        const newCards = [...prevCards];
-        newCards[currentIndex] = {
-          ...card,
-          interval: nextReview.interval,
-          easeFactor: nextReview.easeFactor,
-          repetitions: nextReview.repetitions,
-          status: nextReview.status,
-          nextReview: nextReview.nextReview.toISOString(),
-          lastRating: quality,
-          needsMorePractice: quality <= 3 // Mark cards rated Hard or Good as needing practice
-        };
-        return newCards;
-      });
-
-      // Update session stats
-      setSessionStats(prev => {
-        const isCorrect = quality >= 3;
-        return {
-          totalReviewed: prev.totalReviewed + 1,
-          correct: prev.correct + (isCorrect ? 1 : 0),
-          streak: isCorrect ? prev.streak + 1 : 0,
-        };
-      });
-
-      // Update study session stats based on new status
-      setStudySession(prev => {
-        const newStats = { ...prev };
-        // Decrement count for old status
-        if (card.status === 'new') newStats.newCards--;
-        else if (card.status === 'review') newStats.reviewCards--;
-        else if (card.status === 'learning' || card.status === 'relearning') {
-          newStats.learningCards--;
-        }
-        
-        // Increment count for new status
-        if (nextReview.status === 'new') newStats.newCards++;
-        else if (nextReview.status === 'review') newStats.reviewCards++;
-        else if (nextReview.status === 'learning' || nextReview.status === 'relearning') {
-          newStats.learningCards++;
-        }
-        return newStats;
-      });
-
-      if (currentIndex === cards.length - 1) {
-        // Get count of cards that need more practice
-        const cardsNeedingPractice = cards.filter(c => c.needsMorePractice).length;
-        
-        if (cardsNeedingPractice > 0) {
-          Alert.alert(
-            'Review Needed Cards',
-            `You have ${cardsNeedingPractice} cards that need more practice. Would you like to review them now?`,
-            [
-              {
-                text: 'Review',
-                onPress: () => {
-                  // Reload cards to get the prioritized order
-                  loadCards();
-                }
-              },
-              {
-                text: 'Finish',
-                onPress: finishSession
-              }
-            ]
-          );
-        } else {
-          finishSession();
-        }
-      } else if (continuousMode) {
-        autoAdvance();
-      } else {
-        setCurrentIndex(currentIndex + 1);
-        if (isFlipped) {
-          handleFlip();
-        }
-      }
-    } catch (error) {
-      console.error('Review error:', error);
-      Alert.alert('Error', 'Failed to update card status');
-    } finally {
-      setSubmitting(false);
-    }
+    }).start();
+    setIsFlipped(!isFlipped);
   };
 
-  const frontInterpolate = flipAnimation.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '180deg'],
-  });
+  const handleResponse = (quality: number) => {
+    if (currentIndex < cards.length - 1) {
+      // Reset flip state
+      flipAnimation.setValue(0);
+      setIsFlipped(false);
+      
+      // Update stats
+      setSessionStats(prev => ({
+        totalReviewed: prev.totalReviewed + 1,
+        correct: quality >= 3 ? prev.correct + 1 : prev.correct,
+        streak: quality >= 3 ? prev.streak + 1 : 0,
+      }));
 
-  const backInterpolate = flipAnimation.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['180deg', '360deg'],
-  });
+      // Move to next card
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      // Session complete
+      router.back();
+    }
+  };
 
   const frontAnimatedStyle = {
     transform: [
-      { scale: scaleAnimation },
-      { translateX: swipeAnimation },
-      { rotateY: frontInterpolate },
+      {
+        rotateY: flipAnimation.interpolate({
+          inputRange: [0, 1],
+          outputRange: ['0deg', '180deg'],
+        }),
+      },
     ],
   };
 
   const backAnimatedStyle = {
     transform: [
-      { scale: scaleAnimation },
-      { translateX: swipeAnimation },
-      { rotateY: backInterpolate },
+      {
+        rotateY: flipAnimation.interpolate({
+          inputRange: [0, 1],
+          outputRange: ['180deg', '360deg'],
+        }),
+      },
     ],
   };
 
-  const nextCardAnimatedStyle = {
-    transform: [{ scale: nextCardScale }],
-    opacity: nextCardScale.interpolate({
-      inputRange: [0.9, 1],
-      outputRange: [0.5, 1],
-    }),
-  };
+  const renderCardContent = () => {
+    if (loading || !cards.length) return null;
 
-  // Add cleanup effect
-  useEffect(() => {
-    return () => {
-      // Reset session when component unmounts
-      resetSession();
-    };
-  }, [resetSession]);
+    const currentCard = cards[currentIndex];
+    if (!currentCard) return null;
+
+    console.log('Rendering card:', currentCard); // Debug log
+
+    if (currentCard.type === 'standard') {
+      return (
+        <View style={styles.cardContent}>
+          <Text style={[styles.cardLabel, { color: isDark ? '#aaa' : '#666' }]}>
+            {isFlipped ? 'Answer' : 'Question'}
+          </Text>
+          <Text style={[styles.cardText, { color: isDark ? '#fff' : '#000' }]}>
+            {isFlipped ? currentCard.back : currentCard.front}
+          </Text>
+        </View>
+      );
+    }
+
+    if (currentCard.type === 'cloze' && currentCard.clozeText) {
+      const clozeText = currentCard.clozeText;
+      const parts = clozeText.split(/({{c1::.*?}})/g).filter(Boolean);
+      
+      return (
+        <View style={styles.cardContent}>
+          <Text style={[styles.cardLabel, { color: isDark ? '#aaa' : '#666' }]}>
+            Fill in the blank
+          </Text>
+          <View style={styles.clozeContainer}>
+            <Text style={[styles.cardText, { color: isDark ? '#fff' : '#000' }]}>
+              {parts.map((part, index) => {
+                const clozeMatch = part.match(/{{c1::(.*?)}}/);
+                if (clozeMatch) {
+                  if (isFlipped) {
+                    return (
+                      <Text key={index} style={styles.highlightedCloze}>
+                        {clozeMatch[1]}
+                      </Text>
+                    );
+                  }
+                  return (
+                    <Text key={index} style={styles.clozeBlank}>
+                      [...]
+                    </Text>
+                  );
+                }
+                return <Text key={index}>{part}</Text>;
+              })}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    // If card type is not recognized, show an error
+    return (
+      <View style={styles.cardContent}>
+        <Text style={[styles.cardLabel, { color: isDark ? '#aaa' : '#666' }]}>
+          Error
+        </Text>
+        <Text style={[styles.cardText, { color: isDark ? '#fff' : '#000' }]}>
+          Unknown card type: {currentCard.type}
+        </Text>
+      </View>
+    );
+  };
 
   if (loading) {
     return (
-      <View style={styles.centered}>
+      <View style={[styles.container, { backgroundColor: isDark ? '#121212' : '#f5f5f5' }]}>
         <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
 
-  if (sessionComplete || !cards || cards.length === 0) {
+  if (!cards.length) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.emptyText}>
-          {sessionComplete ? 'Session complete' : 'No cards available for review'}
-        </Text>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.backButtonText}>Go Back</Text>
-        </TouchableOpacity>
+      <View style={[styles.container, { backgroundColor: isDark ? '#121212' : '#f5f5f5' }]}>
+        <Text style={{ color: isDark ? '#fff' : '#000' }}>No cards to study</Text>
       </View>
     );
   }
-
-  const currentCard = cards[currentIndex];
-  
-  // Safety check for currentCard
-  if (!currentCard) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.emptyText}>Session complete</Text>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.backButtonText}>Go Back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const nextCard = currentIndex + 1 < cards.length ? cards[currentIndex + 1] : null;
-  const progress = `${currentIndex + 1}/${cards.length}`;
-  const accuracy = sessionStats.totalReviewed > 0
-    ? Math.round((sessionStats.correct / sessionStats.totalReviewed) * 100)
-    : 0;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: isDark ? '#121212' : '#f5f5f5' }]}>
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="close" size={24} color={Colors.text} />
-        </TouchableOpacity>
-        <View style={styles.stats}>
-          <Text style={styles.progress}>{progress}</Text>
-          <Text style={styles.accuracy}>{accuracy}% • Streak: {sessionStats.streak}</Text>
-        </View>
-        <View style={styles.modeSwitch}>
-          <Switch
-            value={continuousMode}
-            onValueChange={setContinuousMode}
-            trackColor={{ false: Colors.border, true: Colors.primary }}
-          />
-        </View>
-      </View>
-
-      <View style={styles.sessionInfo}>
-        <View style={styles.sessionStat}>
-          <Text style={styles.sessionStatNumber}>{studySession.learningCards}</Text>
-          <Text style={styles.sessionStatLabel}>Learning</Text>
-        </View>
-        <View style={styles.sessionStat}>
-          <Text style={styles.sessionStatNumber}>{studySession.reviewCards}</Text>
-          <Text style={styles.sessionStatLabel}>Review</Text>
-        </View>
-        <View style={styles.sessionStat}>
-          <Text style={styles.sessionStatNumber}>{studySession.newCards}</Text>
-          <Text style={styles.sessionStatLabel}>New</Text>
-        </View>
+        <Text style={[styles.progress, { color: isDark ? '#fff' : '#000' }]}>
+          {currentIndex + 1} / {cards.length}
+        </Text>
+        <Text style={[styles.streak, { color: isDark ? '#fff' : '#000' }]}>
+          Streak: {sessionStats.streak}
+        </Text>
       </View>
 
       <View style={styles.cardContainer}>
-        {nextCard && (
-          <Animated.View style={[styles.card, styles.nextCard, nextCardAnimatedStyle]}>
-            <Text style={styles.cardText}>{nextCard.front}</Text>
+        <TouchableOpacity activeOpacity={0.9} onPress={handleFlip}>
+          <Animated.View
+            style={[
+              styles.card,
+              frontAnimatedStyle,
+              { backgroundColor: isDark ? '#1a1b1e' : '#fff' },
+            ]}
+          >
+            {renderCardContent()}
           </Animated.View>
-        )}
-        
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={handleFlip}
-          {...panResponder.panHandlers}
-        >
-          <Animated.View style={[styles.card, frontAnimatedStyle]}>
-            <Text style={styles.cardText}>{currentCard.front}</Text>
-            <Text style={styles.tapHint}>Tap to flip • Swipe to rate</Text>
-          </Animated.View>
-          
-          <Animated.View style={[styles.card, styles.cardBack, backAnimatedStyle]}>
-            <Text style={styles.cardText}>{currentCard.back}</Text>
-            <Text style={styles.tapHint}>Tap to flip</Text>
+
+          <Animated.View
+            style={[
+              styles.card,
+              styles.cardBack,
+              backAnimatedStyle,
+              { backgroundColor: isDark ? '#1a1b1e' : '#fff' },
+            ]}
+          >
+            {renderCardContent()}
           </Animated.View>
         </TouchableOpacity>
       </View>
 
-      <View style={[styles.ratingContainer, { opacity: isFlipped ? 1 : 0.5 }]}>
-        <Text style={styles.ratingTitle}>How well did you remember this?</Text>
-        <View style={styles.ratingButtons}>
+      {isFlipped && (
+        <View style={styles.buttonsContainer}>
           <TouchableOpacity
-            style={[styles.ratingButton, styles.hardButton]}
-            onPress={() => handleRate(1)}
-            disabled={!isFlipped || submitting}
+            style={[styles.button, { backgroundColor: '#ff6b6b' }]}
+            onPress={() => handleResponse(1)}
           >
-            <Text style={styles.ratingButtonText}>Hard</Text>
+            <Text style={styles.buttonText}>Again</Text>
           </TouchableOpacity>
           
           <TouchableOpacity
-            style={[styles.ratingButton, styles.goodButton]}
-            onPress={() => handleRate(3)}
-            disabled={!isFlipped || submitting}
+            style={[styles.button, { backgroundColor: '#ffd93d' }]}
+            onPress={() => handleResponse(2)}
           >
-            <Text style={styles.ratingButtonText}>Good</Text>
+            <Text style={styles.buttonText}>Hard</Text>
           </TouchableOpacity>
           
           <TouchableOpacity
-            style={[styles.ratingButton, styles.easyButton]}
-            onPress={() => handleRate(5)}
-            disabled={!isFlipped || submitting}
+            style={[styles.button, { backgroundColor: '#6c5ce7' }]}
+            onPress={() => handleResponse(3)}
           >
-            <Text style={styles.ratingButtonText}>Easy</Text>
+            <Text style={styles.buttonText}>Good</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.button, { backgroundColor: '#51cf66' }]}
+            onPress={() => handleResponse(4)}
+          >
+            <Text style={styles.buttonText}>Easy</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      )}
+
+      {!isFlipped && (
+        <View style={styles.hint}>
+          <Ionicons name="finger-print-outline" size={24} color={isDark ? '#fff' : '#000'} />
+          <Text style={[styles.hintText, { color: isDark ? '#fff' : '#000' }]}>
+            Tap to reveal answer
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -671,152 +306,110 @@ export default function StudyScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    padding: 16,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  closeButton: {
-    padding: 8,
-  },
-  stats: {
-    alignItems: 'center',
+    marginBottom: 24,
   },
   progress: {
     fontSize: 16,
     fontWeight: '600',
-    color: Colors.text,
   },
-  accuracy: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginTop: 2,
-  },
-  modeSwitch: {
-    width: 40,
-    alignItems: 'center',
+  streak: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   cardContainer: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    justifyContent: 'center',
   },
   card: {
-    width: width - 32,
-    height: 400,
-    backgroundColor: Colors.white,
+    width: width - 48,
+    height: height * 0.45,
     borderRadius: 20,
     padding: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backfaceVisibility: 'hidden',
+    elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
-  },
-  nextCard: {
-    position: 'absolute',
-    zIndex: -1,
+    backfaceVisibility: 'hidden',
   },
   cardBack: {
     position: 'absolute',
     top: 0,
-    left: 0,
   },
-  cardText: {
-    fontSize: 20,
-    color: Colors.text,
-    textAlign: 'center',
-  },
-  tapHint: {
-    position: 'absolute',
-    bottom: 16,
-    fontSize: 12,
-    color: Colors.textTertiary,
-  },
-  ratingContainer: {
-    padding: 16,
-    gap: 16,
-  },
-  ratingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-    textAlign: 'center',
-  },
-  ratingButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  ratingButton: {
+  cardContent: {
     flex: 1,
-    height: 48,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 24,
   },
-  ratingButtonText: {
-    fontSize: 16,
+  cardLabel: {
+    fontSize: 14,
     fontWeight: '600',
-    color: Colors.white,
-  },
-  hardButton: {
-    backgroundColor: '#E53935',
-  },
-  goodButton: {
-    backgroundColor: '#7CB342',
-  },
-  easyButton: {
-    backgroundColor: '#039BE5',
-  },
-  sessionInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    backgroundColor: Colors.white,
-  },
-  sessionStat: {
-    alignItems: 'center',
-  },
-  sessionStatNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Colors.text,
-  },
-  sessionStatLabel: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  emptyText: {
-    fontSize: 18,
-    color: Colors.textSecondary,
-    textAlign: 'center',
     marginBottom: 16,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
-  backButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
+  cardText: {
+    fontSize: 18,
+    lineHeight: 28,
+    textAlign: 'center',
   },
-  backButtonText: {
-    color: Colors.white,
-    fontSize: 16,
+  clozeContainer: {
+    backgroundColor: '#00000008',
+    padding: 20,
+    borderRadius: 12,
+    marginVertical: 8,
+    width: '100%',
+  },
+  highlightedCloze: {
+    backgroundColor: '#6c5ce720',
+    color: '#6c5ce7',
     fontWeight: '600',
+    padding: 4,
+    borderRadius: 4,
+    overflow: 'hidden',
   },
-}); 
+  clozeBlank: {
+    color: '#666',
+    fontWeight: '500',
+    backgroundColor: '#00000010',
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  buttonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 24,
+    gap: 8,
+  },
+  button: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  hint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 24,
+  },
+  hintText: {
+    fontSize: 16,
+  },
+});

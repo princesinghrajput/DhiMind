@@ -45,6 +45,8 @@ interface StyleProps extends Record<CardStatus, object> {
   emptyContainer: object;
   emptyText: object;
   emptySubtext: object;
+  cardHeader: object;
+  cardType: object;
 }
 
 export default function DeckScreen() {
@@ -55,6 +57,7 @@ export default function DeckScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isDark, setIsDark] = useState(false);
 
   const loadData = async () => {
     try {
@@ -89,25 +92,45 @@ export default function DeckScreen() {
     router.push(`/deck/${id}/study`);
   };
 
+  const getCardPreview = (card: Card) => {
+    if (card.type === 'cloze') {
+      // For cloze cards, show the text with [...] for cloze deletions
+      return card.clozeText?.replace(/{{c1::(.*?)}}/g, '[...]') || '';
+    }
+    return card.front;
+  };
+
   const renderCardItem = ({ item }: { item: Card }) => (
     <TouchableOpacity
-      style={styles.cardItem}
+      style={[styles.cardItem, { backgroundColor: isDark ? '#1a1b1e' : '#fff' }]}
       onPress={() => router.push(`/card/${item._id}`)}
     >
       <View style={styles.cardContent}>
-        <Text style={styles.cardText} numberOfLines={2}>
-          {item.front}
+        <View style={styles.cardHeader}>
+          <Text style={[styles.cardType, { color: isDark ? '#aaa' : '#666' }]}>
+            {item.type === 'cloze' ? 'Cloze' : 'Basic'}
+          </Text>
+        </View>
+        <Text 
+          style={[styles.cardText, { color: isDark ? '#fff' : '#000' }]} 
+          numberOfLines={2}
+        >
+          {getCardPreview(item)}
         </Text>
         <View style={styles.cardStatus}>
           <Text style={[styles.statusText, styles[item.status]]}>
             {item.status}
           </Text>
-          <Text style={styles.nextReview}>
+          <Text style={[styles.nextReview, { color: isDark ? '#aaa' : '#666' }]}>
             Next: {formatDate(new Date(item.nextReview))}
           </Text>
         </View>
       </View>
-      <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+      <Ionicons 
+        name="chevron-forward" 
+        size={20} 
+        color={isDark ? '#aaa' : Colors.textSecondary} 
+      />
     </TouchableOpacity>
   );
 
@@ -286,6 +309,17 @@ const styles = StyleSheet.create({
   cardContent: {
     flex: 1,
     gap: 8,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  cardType: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   cardText: {
     fontSize: 16,

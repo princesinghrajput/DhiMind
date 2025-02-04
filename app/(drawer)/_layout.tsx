@@ -86,7 +86,7 @@ export default function DrawerLayout() {
         }}
       />
         <Drawer.Screen
-        name="deck/[id]/analytics"
+        name="stats"  
         options={{
           title: 'Analytics',
           drawerLabel: ({ focused }) => (
